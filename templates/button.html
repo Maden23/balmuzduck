@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>БалмузДак</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.3/css/bulma.min.css">
+</head>
+<body class="has-background-light" style="height: 100vh;">
+
+    <section class="hero is-fullheight">
+        <div class="hero-body has-text-centered">
+            <div class="container">
+                <div class="control block">
+                    <button
+                        id="say-button"
+                        class="button is-success"
+                        onclick="toggleRecognition()"
+                        style="height: 100px; width: 80%; border-radius: 25px; font-size: xx-large;"
+                    >
+                        Говорить
+                    </button>
+                </div>
+                <div class="control block">
+                    <button id="clear-button" class="button is-danger" onclick="clearChat()">Сбросить</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="content has-text-centered">
+            <a href="/" class="is-size-4">Чат</a>
+        </div>
+    </footer>
+
+    <script>
+
+        function sendMessage (userInput) {
+            sayButtonState('loading')
+
+            // Send the message to the backend
+            fetch('/send_text_message', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'text_input=' + encodeURIComponent(userInput),
+            })
+            .then(response => response.json())
+            .then(data => {
+                playAudioMessage(data.message)
+            })
+            .catch(error => {
+                sayButtonState('ready')
+                console.error('Error fetching response from the backend:', error);
+            });
+        }
+
+        function clearChat() {
+            // Clear chat history on the server
+            fetch('/clear_chat_history', {
+                method: 'POST',
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('Chat history cleared on the server.');
+                } else {
+                    console.error('Failed to clear chat history on the server.');
+                }
+            })
+            .catch(error => {
+                console.error('Error clearing chat history on the server:', error);
+            });
+        }
+
+        // function to play audio message
+        function playAudioMessage(text) {
+            fetch('/create_message_audio', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'message_text=' + encodeURIComponent(text),
+            })
+            .then(response => response.blob())
+            .then(audio => {
+                var url = window.URL.createObjectURL(audio);
+                const w = new Audio();
+                w.src = url;
+                w.onended = () => {
+                    sayButtonState('ready')
+                }
+                sayButtonState('responding')
+                w.play();
+            })
+        }
+
+        var sayButton = document.getElementById('say-button');
+        var isListening = false;
+
+        function toggleRecognition() {
+            if (!isListening){
+                startRecognition();
+
+            }
+            else {
+                stopRecognition();
+
+            }
+        }
+
+        var recognition
+        var transcript = ""
+        function startRecognition() {
+            recognition = new webkitSpeechRecognition();
+            recognition.interimResults = false;
+            recognition.continuous = true;
+            recognition.lang = 'ru-RU';
+            recognition.onstart = () => {
+                isListening = true;
+                sayButtonState('listening')
+            }
+            recognition.onresult = (e) => {
+                transcript = ""
+                for (var i = 0; i < e.results.length; i++) {
+                    transcript += e.results[i][0].transcript
+                }
+            }
+            recognition.start();
+        }
+
+        function stopRecognition () {
+            recognition.onend = () => {
+                sendMessage(transcript)
+            }
+            recognition.stop();
+            isListening = false;
+        }
+
+        function sendAudioMessage(blob) {
+            const formData = new FormData()
+            formData.append('audio_input', blob)
+            fetch('/send_audio_message', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                playAudioMessage(data.message)
+            })
+        }
+
+        function sayButtonState (state) {
+            switch(state) {
+                case 'ready': {
+                    sayButton.className="button is-success";
+                    sayButton.innerHTML = "Говорить"
+                    break
+                }
+                case 'listening': {
+                    sayButton.className="button is-primary";
+                    sayButton.innerHTML = "Слушаю..."
+                    break
+                }
+                case 'loading': {
+                    sayButton.className="button is-primary is-loading";
+                    break
+                }
+                case 'responding': {
+                    sayButton.className="button is-primary";
+                    sayButton.innerHTML = "💬"
+                    break
+                }
+
+            }
+        }
+    </script>
+
+</body>
+</html>

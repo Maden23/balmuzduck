@@ -11,6 +11,10 @@ chatbot = Chatbot()
 def index():
     return render_template('index.html', chat_history=chat_history)
 
+@app.route('/button')
+def button():
+    return render_template('button.html')
+
 @app.route('/send_text_message', methods=['POST'])
 def send_text_message():
     user_input = request.form['text_input']
