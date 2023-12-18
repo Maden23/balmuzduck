@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>БалмузДак</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.3/css/bulma.min.css">
+</head>
+<body class="has-background-light" style="height: 100vh;">
+
+    <section class="section" style="height: 100%;">
+        <div class="container is-flex is-flex-direction-column" style="height: 100%;">
+            <div id="chat-history" class="box is-flex-grow-1" style="max-height: 70vh; overflow: auto;">
+                <!-- The chat history will be populated here -->
+            </div>
+            <div class="field is-grouped">
+                <div class="control is-expanded">
+                    <textarea id="user-input" class="textarea" placeholder="Type your message..."></textarea>
+                </div>
+                <div class="control">
+                    <button id="send-button" class="button is-primary" onclick="sendTextInputMessage()">Send</button>
+                </div>
+               <div class="control">
+                 <button id="clear-button" class="button is-danger" onclick="clearChat()">Clear</button>
+               </div>
+            </div>
+            <div class="control">
+                <button id="say-button" class="button is-success" onclick="toggleRecognition()">Say</button>
+            </div>
+        </div>
+    </section>
+
+
+    <script>
+        function sendTextInputMessage() {
+            var userInput = document.getElementById('user-input').value;
+            sendMessage(userInput)
+        }
+
+        function sendMessage (userInput) {
+            var chatHistory = document.getElementById('chat-history');
+
+            // Check if the default message is present, remove it
+            var defaultMessage = chatHistory.querySelector('article.default-message');
+            if (defaultMessage && chatHistory.contains(defaultMessage)) {
+                chatHistory.removeChild(defaultMessage);
+            }
+
+            // Display user message
+            displayMessage('User', userInput);
+
+            // Send the message to the backend
+            fetch('/send_text_message', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'text_input=' + encodeURIComponent(userInput),
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Display chatbot response (with green color)
+                displayMessage('ChatGPT', data.message, 'is-success');
+
+                // Scroll to the bottom of the chat history
+                chatHistory.scrollTop = chatHistory.scrollHeight;
+
+                playAudioMessage(data.message)
+            })
+            .catch(error => {
+                console.error('Error fetching response from the backend:', error);
+                // Display an error message if needed
+                displayMessage('ChatGPT', 'An error occurred while fetching the response.', 'is-danger');
+            });
+
+            // Clear the user input
+            document.getElementById('user-input').value = '';
+        }
+
+        function clearChat() {
+            var chatHistory = document.getElementById('chat-history');
+            chatHistory.innerHTML = '';
+
+            // Clear chat history on the server
+            fetch('/clear_chat_history', {
+                method: 'POST',
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log('Chat history cleared on the server.');
+                    var defaultMessage = document.createElement('article');
+                    defaultMessage.className = 'message default-message';
+                    defaultMessage.innerHTML = '<div class="message-body has-text-centered">Chat history is empty</div>';
+                    chatHistory.appendChild(defaultMessage);
+                } else {
+                    console.error('Failed to clear chat history on the server.');
+                }
+            })
+            .catch(error => {
+                console.error('Error clearing chat history on the server:', error);
+            });
+        }
+
+        // Function to display a message in the chat history
+        function displayMessage(sender, message, style) {
+            var chatHistory = document.getElementById('chat-history');
+            var newMessage = document.createElement('article');
+            newMessage.className = 'message';
+            newMessage.classList.add(style); // Add color class based on the style
+            newMessage.innerHTML = '<div class="message-body"><strong>' + sender + ':</strong> ' + message + '</div>';
+            chatHistory.appendChild(newMessage);
+        }
+
+        // Function to fetch and display the chat history on page load
+        function displayChatHistory() {
+            var chatHistory = document.getElementById('chat-history');
+
+            // Fetch chat history from the backend
+            fetch('/get_chat_history')
+            .then(response => response.json())
+            .then(data => {
+                // Clear the chat history
+                chatHistory.innerHTML = '';
+
+                if (data.length === 0) {
+                    // If no messages, add the default message
+                    var defaultMessage = document.createElement('article');
+                    defaultMessage.className = 'message default-message';
+                    defaultMessage.innerHTML = '<div class="message-body has-text-centered">Chat history is empty</div>';
+                    chatHistory.appendChild(defaultMessage);
+                } else {
+                    // Add each message to the chat history
+                    data.forEach(entry => {
+                        displayMessage(entry.sender, entry.message, entry.style);
+                    });
+                }
+            });
+        }
+
+        // function to play audio message
+        function playAudioMessage(text) {
+            fetch('/create_message_audio', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'message_text=' + encodeURIComponent(text),
+            })
+            .then(response => response.blob())
+            .then(audio => {
+                console.log(audio)
+                var url = window.URL.createObjectURL(audio);
+                const w = new Audio();
+                w.src = url;
+                w.play();
+            })
+        }
+
+        var isRecording = false;
+        var sayButton = document.getElementById('say-button');
+
+        function toggleRecording() {
+            if (!isRecording){
+                startRecording();
+                sayButton.className="button is-danger";
+            }
+            else {
+                stopRecording();
+                sayButton.className="button is-success";
+            }
+        }
+
+        var mediaRecorder
+        var chunks = [];
+
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({audio: true})
+                .then((stream) => {
+                    mediaRecorder = new MediaRecorder(stream, {mimeType: "video/webm; codecs=vp8,opus"});
+                    mediaRecorder.ondataavailable = (e) => {
+                        chunks.push(e.data);
+                    };
+                    mediaRecorder.start();
+                    isRecording = true;
+                })
+                .catch((err) => {
+                    console.error(`The following getUserMedia error occurred: ${err}`);
+                });
+        }
+
+        function stopRecording() {
+            mediaRecorder.onstop = (e) => {
+                isRecording = false;
+                const blob = new Blob(chunks, { type: "video/webm; codecs=vp8,opus" });
+                chunks = [];
+                sendAudioMessage(blob);
+            }
+            mediaRecorder.stop();
+        }
+
+        var isListening = false;
+        function toggleRecognition() {
+            if (!isListening){
+                startRecognition();
+                sayButton.className="button is-danger";
+            }
+            else {
+                stopRecognition();
+                sayButton.className="button is-success";
+            }
+        }
+
+        var recognition
+        var transcript = ""
+        function startRecognition() {
+            recognition = new webkitSpeechRecognition();
+            recognition.interimResults = false;
+            recognition.continuous = true;
+            recognition.lang = 'ru-RU';
+            recognition.onstart = () => {
+                isListening = true;
+            }
+            recognition.onresult = (e) => {
+                transcript = ""
+                for (var i = 0; i < e.results.length; i++) {
+                    transcript += e.results[i][0].transcript
+                }
+            }
+            recognition.start();
+        }
+
+        function stopRecognition () {
+            recognition.onend = () => {
+                sendMessage(transcript)
+            }
+            recognition.stop();
+            isListening = false;
+        }
+
+        function sendAudioMessage(blob) {
+            const formData = new FormData()
+            formData.append('audio_input', blob)
+            fetch('/send_audio_message', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Display chatbot response (with green color)
+                displayMessage('ChatGPT', data.message, 'is-success');
+
+                // Scroll to the bottom of the chat history
+                chatHistory.scrollTop = chatHistory.scrollHeight;
+
+                playAudioMessage(data.message)
+            })
+        }
+        // Call displayChatHistory when the page loads
+        document.addEventListener('DOMContentLoaded', displayChatHistory);
+    </script>
+
+</body>
+</html>
